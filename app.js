@@ -243,7 +243,7 @@ $('count').onclick = () => {
 tank.addEventListener('pointerdown', () => ($('yearMenu').hidden = true));
 // 햄버거 메뉴: 도감·꾸미기·사용법은 누르면 닫히고, 이름표·시간은 열린 채로 바뀐다
 $('menuBtn').onclick = () => { $('yearMenu').hidden = true; $('menu').hidden = !$('menu').hidden; };
-$('menu').addEventListener('click', (e) => { if (e.target.closest('#bookBtn, #decoBtn, #helpBtn')) $('menu').hidden = true; });
+$('menu').addEventListener('click', (e) => { if (e.target.closest('#bookBtn, #decoBtn, #helpBtn, #tideBtn')) $('menu').hidden = true; });
 tank.addEventListener('pointerdown', () => ($('menu').hidden = true));
 $('tagBtn').onclick = () => { showTags = !showTags; setLS('aq-tags', showTags ? '1' : '0'); refreshShown(); };
 $('timeBtn').onclick = () => { timeMode = { auto: 'day', day: 'night', night: 'auto' }[timeMode]; setLS('aq-time', timeMode); refreshShown(); };
@@ -734,6 +734,7 @@ function showFacts(r) {
   rows.push(`<span>잡은 날</span>${dateText(r.date) || '기록 없음'}`);
   const where = r.place || (r.lat != null ? coordText(r) : '기록 없음');
   rows.push(`<span>잡은 곳</span>${escapeHtml(where)}${r.lat != null ? `<a href="${mapLink(r)}" target="_blank" rel="noopener">지도</a>` : ''}`);
+  rows.push(...dayFacts(r));
   $('sFacts').innerHTML = rows.join('<br>');
   $('sMemo').textContent = r.memo || '';
 }
@@ -741,7 +742,7 @@ const escapeHtml = (s) => s.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt
 async function openSheet(f) {
   cur = f; const r = f.rec;
   $('sPhoto').src = f.photoUrl ||= URL.createObjectURL(r.photo);
-  showFacts(r); $('sView').hidden = false; $('sForm').hidden = true;
+  showFacts(r); fillDayWx(f); $('sView').hidden = false; $('sForm').hidden = true;
   $('sheet').hidden = $('sheetBg').hidden = false; $('sheet').scrollTop = 0;
   if (!r.place && r.lat != null && navigator.onLine) {     // 등록할 때 인터넷이 없었다면 지금 지명을 채운다
     const p = await placeName(r.lat, r.lon);
@@ -1045,4 +1046,142 @@ if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catc
   const open = () => { $('guide').hidden = false; pages.scrollLeft = 0; sync(); };
   $('helpBtn').onclick = open;
   if (LS('aq-guide', '') !== '1' || location.hash === '#guide') open();
+})();
+
+// ───────────────────────── 물때 · 날씨 (바다)
+// 물때는 음력 날짜로 계산한다. 7물때식 = 음력 초하루가 7물(서해), 8물때식 = 초하루가 8물(남해·동해). 13물 다음은 조금, 무시.
+const lunarFmt = (() => { try { const f = new Intl.DateTimeFormat('en-u-ca-dangi', { month: 'numeric', day: 'numeric', timeZone: 'Asia/Seoul' }); return f.resolvedOptions().calendar === 'dangi' ? f : null; } catch { return null; } })();
+function lunarOf(ds) {
+  const d = new Date(ds + 'T12:00:00+09:00');
+  if (lunarFmt) { const p = lunarFmt.formatToParts(d), m = p.find((x) => x.type === 'month').value; return { m: parseInt(m, 10), leap: /\D/.test(m), d: +p.find((x) => x.type === 'day').value }; }
+  const syn = 29.530588853, age = (((d - Date.UTC(2000, 0, 6, 18, 14)) / 864e5) % syn + syn) % syn;      // 음력 달력이 없는 기기: 달의 나이로 근사
+  return { m: 0, leap: false, d: Math.floor(age) + 1, approx: true };
+}
+let mulSys = +LS('aq-mul', '7');
+function mulName(lunarDay, sys = mulSys) { const n = ((lunarDay - 1 + sys - 1) % 15) + 1; return n <= 13 ? `${n}물` : n === 14 ? '조금' : '무시'; }
+const lunarText = (l) => (l.approx ? `음력 ${l.d}일 무렵` : `음력 ${l.leap ? '윤' : ''}${l.m}월 ${l.d}일`);
+const isSari = (l) => [30, 1, 2, 15, 16, 17].includes(l.d);
+const moonName = (d) => (d <= 1 || d >= 30 ? '그믐·삭' : d <= 6 ? '초승달' : d <= 9 ? '상현달' : d <= 13 ? '차오르는 달' : d <= 17 ? '보름달' : d <= 21 ? '기우는 달' : d <= 24 ? '하현달' : '그믐달');
+const WX = { 0: '맑음', 1: '대체로 맑음', 2: '구름 조금', 3: '흐림', 45: '안개', 48: '안개', 51: '이슬비', 53: '이슬비', 55: '이슬비', 56: '이슬비', 57: '이슬비', 61: '약한 비', 63: '비', 65: '강한 비', 66: '어는 비', 67: '어는 비', 71: '약한 눈', 73: '눈', 75: '강한 눈', 77: '싸락눈', 80: '소나기', 81: '소나기', 82: '강한 소나기', 85: '눈 소나기', 86: '눈 소나기', 95: '뇌우', 96: '뇌우·우박', 99: '뇌우·우박' };
+const windName = (deg) => ['북', '북동', '동', '남동', '남', '남서', '서', '북서'][Math.round(deg / 45) % 8] + '풍';
+const isoOf = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+const addDays = (ds, n) => { const d = new Date(ds + 'T12:00:00'); d.setDate(d.getDate() + n); return isoOf(d); };
+const getJson = async (url) => { const r = await fetch(url); if (!r.ok) throw new Error(r.status); return r.json(); };
+
+// 그날 그곳의 날씨·바다 상태를 받아 온다 (무료 공개 예보 Open-Meteo). 못 받은 항목은 비워 둔다.
+async function fetchDay(lat, lon, ds) {
+  const out = {}, q = `latitude=${lat.toFixed(3)}&longitude=${lon.toFixed(3)}&timezone=Asia%2FSeoul`, diff = Math.round((new Date(ds + 'T12:00:00') - new Date(isoOf(new Date()) + 'T12:00:00')) / 864e5);
+  const daily = 'daily=weather_code,temperature_2m_max,temperature_2m_min,wind_speed_10m_max,wind_direction_10m_dominant,precipitation_sum,sunrise,sunset&wind_speed_unit=ms';
+  const wx = async () => {
+    if (diff > 15) return;
+    const urls = [`https://api.open-meteo.com/v1/forecast?${q}&${daily}&start_date=${ds}&end_date=${ds}`, `https://archive-api.open-meteo.com/v1/archive?${q}&${daily}&start_date=${ds}&end_date=${ds}`];
+    if (diff < -80) urls.reverse();
+    for (const u of urls) {
+      try {
+        const d = (await getJson(u)).daily; if (!d || d.weather_code[0] == null) continue;
+        Object.assign(out, { code: d.weather_code[0], tmax: d.temperature_2m_max[0], tmin: d.temperature_2m_min[0], wind: d.wind_speed_10m_max[0], wdir: d.wind_direction_10m_dominant[0], rain: d.precipitation_sum[0], rise: (d.sunrise[0] || '').slice(11, 16), set: (d.sunset[0] || '').slice(11, 16) });
+        return;
+      } catch { /* 다음 주소로 */ }
+    }
+  };
+  const sea = async () => {
+    if (diff > 6) return;
+    try {
+      const j = await getJson(`https://marine-api.open-meteo.com/v1/marine?${q}&hourly=sea_level_height_msl,sea_surface_temperature&daily=wave_height_max&start_date=${addDays(ds, -1)}&end_date=${addDays(ds, 1)}`);
+      const h = j.hourly.sea_level_height_msl, sst = j.hourly.sea_surface_temperature.slice(24, 48).filter((v) => v != null);
+      if (j.daily.wave_height_max[1] != null) out.wave = j.daily.wave_height_max[1];
+      if (sst.length) out.sst = sst.reduce((a, b) => a + b, 0) / sst.length;
+      if (h && h[24] != null) {                      // 시간별 물높이 곡선의 꼭대기·바닥 = 만조·간조 (포물선으로 분 단위까지 어림)
+        out.tides = [];
+        for (let i = 24; i < 48; i++) {
+          const a = h[i - 1], b = h[i], c = h[i + 1]; if (a == null || c == null) continue;
+          const hi = b > a && b >= c, lo = b < a && b <= c; if (!hi && !lo) continue;
+          const den = a - 2 * b + c, off = den ? clamp(0.5 * (a - c) / den, -0.5, 0.5) : 0, tt = i - 24 + off; if (tt < 0 || tt >= 24) continue;
+          out.tides.push({ hi, t: `${String(Math.floor(tt)).padStart(2, '0')}:${String(Math.floor((tt % 1) * 60)).padStart(2, '0')}`, v: b - 0.25 * (a - c) * off });
+        }
+      }
+    } catch { /* 바다 자료 없음 (내륙이거나 범위 밖) */ }
+  };
+  await Promise.all([wx(), sea()]);
+  return out;
+}
+const wxLine = (w) => [w.code != null ? `${WX[w.code] || '날씨'} ${Math.round(w.tmin)}~${Math.round(w.tmax)}℃` : '', w.wind != null ? `${windName(w.wdir)} ${w.wind.toFixed(1)}m/s` : '', w.wave != null ? `파고 ${w.wave.toFixed(1)}m` : '', w.sst != null ? `수온 ${w.sst.toFixed(1)}℃` : ''].filter(Boolean).join(' · ');
+
+// 물고기 기록에 붙는 줄: 잡은 날의 물때와 날씨
+function dayFacts(r) {
+  const rows = [];
+  if (r.date && r.water !== 'fresh') { const l = lunarOf(r.date); rows.push(`<span>물때</span>${mulName(l.d)} <small style="color:var(--sub)">${lunarText(l)}${isSari(l) ? ' · 사리 무렵' : ''}</small>`); }
+  if (r.wx && wxLine(r.wx)) rows.push(`<span>날씨</span>${wxLine(r.wx)}`);
+  return rows;
+}
+async function fillDayWx(f) {
+  const r = f.rec; if (r.wx || r.lat == null || !r.date || !navigator.onLine) return;
+  const w = await fetchDay(r.lat, r.lon, r.date); if (w.code == null && w.wave == null) return;
+  r.wx = { code: w.code, tmax: w.tmax, tmin: w.tmin, wind: w.wind, wdir: w.wdir, wave: w.wave, sst: w.sst };
+  await store('readwrite', (s) => s.put(r)); if (cur === f) showFacts(r);
+}
+
+// 물때·날씨 화면
+(() => {
+  const ITEMS = [['mul', '물때'], ['tide', '만조·간조'], ['wx', '날씨'], ['wind', '바람'], ['wave', '파고'], ['sst', '수온'], ['sun', '일출·일몰'], ['moon', '달']];
+  let on; try { on = new Set(JSON.parse(LS('aq-tide-items', 'null')) || ITEMS.map((i) => i[0])); } catch { on = new Set(ITEMS.map((i) => i[0])); }
+  let place = null; try { place = JSON.parse(LS('aq-tide-place', 'null')); } catch { /* 없음 */ }
+  let day = isoOf(new Date()), data = null, loading = false, reqId = 0;
+  const cache = new Map();
+  const card = (k, title, big, sub = '') => (on.has(k) ? `<div class="tcard"><i>${title}</i><b>${big}</b>${sub ? `<small>${sub}</small>` : ''}</div>` : '');
+  function render() {
+    $('tDate').value = day;
+    $('tPlaceName').textContent = place ? place.name : '장소를 골라 주세요';
+    document.querySelectorAll('#tSys button').forEach((b) => b.classList.toggle('on', +b.dataset.s === mulSys));
+    $('tChips').innerHTML = ''; for (const [k, n] of ITEMS) { const b = document.createElement('button'); b.textContent = n; b.className = on.has(k) ? 'on' : ''; b.onclick = () => { on.has(k) ? on.delete(k) : on.add(k); setLS('aq-tide-items', JSON.stringify([...on])); render(); }; $('tChips').append(b); }
+    $('tWeek').innerHTML = '';
+    for (let i = -1; i <= 5; i++) {
+      const ds = addDays(day, i), d = new Date(ds + 'T12:00:00'), l = lunarOf(ds), b = document.createElement('button');
+      b.className = i === 0 ? 'on' : ''; b.innerHTML = `<small>${'일월화수목금토'[d.getDay()]}</small><b>${d.getDate()}</b><em>${mulName(l.d)}</em>`;
+      b.onclick = () => { day = ds; load(); }; $('tWeek').append(b);
+    }
+    const l = lunarOf(day), w = data || {}, none = place ? (loading ? '불러오는 중…' : '자료 없음') : '장소를 고르면 나와요';
+    let html = card('mul', '물때', mulName(l.d), `${lunarText(l)}${isSari(l) ? ' · 사리 무렵' : ''}`);
+    html += card('tide', '만조 · 간조', w.tides && w.tides.length ? w.tides.map((x) => `<span class="${x.hi ? 'hi' : 'lo'}">${x.hi ? '만조' : '간조'} ${x.t}</span>`).join('') : none, w.tides && w.tides.length ? '예측 모델로 어림한 값이라 실제와 20~30분쯤 다를 수 있어요' : '');
+    html += card('wx', '날씨', w.code != null ? WX[w.code] || '-' : none, w.code != null ? `최저 ${Math.round(w.tmin)}℃ · 최고 ${Math.round(w.tmax)}℃${w.rain ? ` · 비 ${w.rain.toFixed(1)}mm` : ''}` : '');
+    html += card('wind', '바람', w.wind != null ? `${w.wind.toFixed(1)} m/s` : none, w.wind != null ? `${windName(w.wdir)} · 하루 중 가장 셀 때` : '');
+    html += card('wave', '파고', w.wave != null ? `${w.wave.toFixed(1)} m` : none, w.wave != null ? '하루 중 가장 높을 때' : '');
+    html += card('sst', '수온', w.sst != null ? `${w.sst.toFixed(1)} ℃` : none, w.sst != null ? '바다 표면, 하루 평균' : '');
+    html += card('sun', '일출 · 일몰', w.rise ? `${w.rise} · ${w.set}` : none);
+    html += card('moon', '달', moonName(l.d), l.approx ? '' : `음력 ${l.d}일`);
+    $('tCards').innerHTML = html || '<p class="gnote">위에서 볼 항목을 골라 주세요.</p>';
+  }
+  async function load() {
+    data = null; render(); if (!place) return;
+    const key = `${place.lat},${place.lon},${day}`, id = ++reqId;
+    if (!cache.has(key)) { loading = true; render(); try { cache.set(key, await fetchDay(place.lat, place.lon, day)); } catch { /* 실패 */ } loading = false; }
+    if (id === reqId) { data = cache.get(key) || null; render(); }
+  }
+  function setPlace(p) {
+    place = p; setLS('aq-tide-place', JSON.stringify(p)); $('tSearch').hidden = true;
+    if (LS('aq-mul', '') === '') mulSys = p.lon < 126.95 && p.lat > 34.3 ? 7 : 8;      // 처음엔 지역에 맞춰 골라 준다: 서해는 7물때, 남해·동해는 8물때
+    load();
+  }
+  $('tideBtn').onclick = () => { $('tide').hidden = false; day = isoOf(new Date()); load(); };
+  $('tClose').onclick = () => ($('tide').hidden = true);
+  $('tPrev').onclick = () => { day = addDays(day, -1); load(); };
+  $('tNext').onclick = () => { day = addDays(day, 1); load(); };
+  $('tToday').onclick = () => { day = isoOf(new Date()); load(); };
+  $('tDate').onchange = () => { if ($('tDate').value) { day = $('tDate').value; load(); } };
+  document.querySelectorAll('#tSys button').forEach((b) => (b.onclick = () => { mulSys = +b.dataset.s; setLS('aq-mul', String(mulSys)); render(); }));
+  $('tPlaceBtn').onclick = () => { $('tSearch').hidden = !$('tSearch').hidden; if (!$('tSearch').hidden) $('tQ').focus(); };
+  const search = async () => {
+    const q = $('tQ').value.trim(); if (!q) return; $('tRes').textContent = '찾는 중…';
+    try {
+      const j = await getJson(`https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(q)}&language=ko&count=6&countryCode=KR`);
+      $('tRes').innerHTML = ''; if (!j.results || !j.results.length) return ($('tRes').textContent = '찾지 못했어요. 시·군·항구 이름으로 다시 찾아 주세요.');
+      for (const r of j.results) { const b = document.createElement('button'); b.textContent = [r.admin1, r.admin2, r.name].filter((v, i, a) => v && a.indexOf(v) === i).join(' '); b.onclick = () => setPlace({ name: b.textContent, lat: r.latitude, lon: r.longitude }); $('tRes').append(b); }
+    } catch { $('tRes').textContent = '인터넷 연결을 확인해 주세요.'; }
+  };
+  $('tGo').onclick = search; $('tQ').onkeydown = (e) => { if (e.key === 'Enter') search(); };
+  $('tHere').onclick = () => {
+    if (!navigator.geolocation) return toast('이 기기에서는 위치를 알 수 없어요');
+    $('tRes').textContent = '위치 확인 중…';
+    navigator.geolocation.getCurrentPosition(async (p) => { const { latitude: lat, longitude: lon } = p.coords; setPlace({ name: (await placeName(lat, lon)) || '내 위치', lat, lon }); }, () => ($('tRes').textContent = '위치 권한이 꺼져 있어요. 이름으로 찾아 주세요.'), { timeout: 10000 });
+  };
 })();
