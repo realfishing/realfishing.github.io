@@ -32,6 +32,7 @@
 </script>
 <style>
   :root { --glass: rgba(8, 30, 54, .62); --line: rgba(255,255,255,.16); --txt: #eaf6ff; --sub: #a9c8e0; --accent: #38c8f0; --danger: #ff7a6b; }
+  html { min-height: calc(100% + env(safe-area-inset-top)); }
   * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
   html, body { margin: 0; height: 100%; overflow: hidden; background: #857d5e; color: var(--txt);
     font-family: -apple-system, "Apple SD Gothic Neo", "Pretendard", "Malgun Gothic", sans-serif; overscroll-behavior: none; }
@@ -39,7 +40,7 @@
   button { cursor: pointer; border: 0; background: none; }
   [hidden] { display: none !important; }
 
-  #tank { position: fixed; inset: 0; width: 100%; height: 100%; height: 100lvh; display: block; touch-action: none; }
+  #tank { position: fixed; inset: 0; width: 100%; height: 100%; height: 100lvh; height: calc(100lvh + env(safe-area-inset-top)); display: block; touch-action: none; }
 
   .top { position: fixed; left: 0; right: 0; top: 0; padding: calc(env(safe-area-inset-top) + 10px) 14px 0;
     display: flex; justify-content: space-between; align-items: center; pointer-events: none; }

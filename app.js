@@ -145,7 +145,10 @@ const pebbles = Array.from({ length: 26 }, () => ({ x: Math.random(), y: rand(0.
 function resize() {
   DPR = Math.min(dprCap, window.devicePixelRatio || 1);
   const box = tank.getBoundingClientRect();
-  W = box.width || window.innerWidth; H = Math.max(box.height, window.innerHeight); botPad = Math.max(0, H - window.innerHeight);
+  W = box.width || window.innerWidth; H = Math.max(box.height, window.innerHeight);
+  // 실제로 눈에 보이는 높이: 홈 화면 앱은 화면 전체가 보이므로 기기 화면 높이를 믿는다 (아이폰이 창 높이를 짧게 알려 주는 경우 대비)
+  const standalone = navigator.standalone || matchMedia('(display-mode: standalone)').matches, scrH = W > H ? Math.min(screen.width, screen.height) : Math.max(screen.width, screen.height);
+  botPad = Math.max(0, H - (standalone ? Math.max(window.innerHeight, Math.min(H, scrH)) : window.innerHeight));
   tank.width = Math.round(W * DPR); tank.height = Math.round(H * DPR); glc.width = hudc.width = tank.width; glc.height = hudc.height = tank.height;
   sandY = (H - botPad) * 0.88; surfY = Math.max(16, $('count').getBoundingClientRect().top - 7); rescale();
   // 화면 크기가 바뀌면(폰을 돌릴 때 등) 물고기를 새 화면 안으로 불러들인다
@@ -302,7 +305,7 @@ function stepFish(f, dt, t) {
 // ───────────────────────── 진짜 같은 물: 그래픽카드(WebGL)로 굴절·빛 그물·빛줄기를 실시간 계산
 // 2D로 그린 장면(물고기·수초·바위·모래)을 통째로 넘겨받아 물속에 넣은 것처럼 합성한다. 안 되는 기기는 기존 그림으로 표시.
 const glc = document.createElement('canvas'), hudc = document.createElement('canvas'), hctx = hudc.getContext('2d');
-for (const c of [glc, hudc]) c.style.cssText = 'position:fixed;inset:0;width:100%;height:100%;height:100lvh;display:block;pointer-events:none';
+for (const c of [glc, hudc]) c.style.cssText = 'position:fixed;inset:0;width:100%;height:100%;height:100lvh;height:calc(100lvh + env(safe-area-inset-top));display:block;pointer-events:none';
 let G = null, dprCap = 2, slowAcc = 0, slowN = 0;
 const VS = 'attribute vec2 aPos; varying vec2 vUv; void main(){ vUv = vec2(aPos.x * 0.5 + 0.5, 0.5 - aPos.y * 0.5); gl_Position = vec4(aPos, 0.0, 1.0); }';
 const FS = `precision highp float;
