@@ -18,6 +18,6 @@ self.addEventListener('fetch', (e) => {
     e.respondWith(caches.match(e.request).then((hit) => hit || fetch(e.request).then(put)));
   } else {
     // 화면 파일은 새 버전 먼저, 인터넷이 없으면 보관본
-    e.respondWith(fetch(e.request).then(put).catch(() => caches.match(e.request, { ignoreSearch: true })));
+    e.respondWith(fetch(e.request, { cache: 'no-cache' }).then(put).catch(() => caches.match(e.request, { ignoreSearch: true })));
   }
 });

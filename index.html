@@ -201,7 +201,7 @@
   #tRes button { text-align: left; padding: 11px 12px; border-radius: 10px; background: rgba(255,255,255,.08); font-size: 15px; color: var(--txt); }
   .tdate { margin: 12px auto; } .tdate .btn { padding: 10px 14px; font-size: 16px; }
   #tSys { margin-bottom: 12px; }
-  .tweek { display: flex; gap: 5px; margin-bottom: 12px; overflow-x: auto; position: relative; scrollbar-width: none; -webkit-overflow-scrolling: touch; padding-bottom: 2px; }
+  .tweek { display: flex; gap: 5px; margin-bottom: 12px; overflow-x: scroll; overflow-y: hidden; touch-action: pan-x; overscroll-behavior-x: contain; width: 100%; position: relative; scrollbar-width: none; -webkit-overflow-scrolling: touch; padding-bottom: 2px; }
   .tweek::-webkit-scrollbar { display: none; }
   .tweek button.sun small { color: #ff8f85; opacity: 1; } .tweek button.sat small { color: #8fc2ff; opacity: 1; }
   .tweek button.today { box-shadow: inset 0 0 0 1.5px var(--accent); }
