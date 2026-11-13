@@ -83,7 +83,7 @@ function dateText(d) { const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(d || ''); retur
 
 // ───────────────────────── 어항
 const tank = $('tank'), ctx = tank.getContext('2d');
-let W = 0, H = 0, DPR = 1, sandY = 0, pxPerCm = 4;
+let W = 0, H = 0, DPR = 1, sandY = 0, pxPerCm = 4, botPad = 0;   // botPad: 브라우저 아래 막대에 가려지는 높이
 const fishes = []; let shown = [];
 const LS = (k, d) => { try { return localStorage.getItem(k) ?? d; } catch { return d; } };
 const setLS = (k, v) => { try { localStorage.setItem(k, v); } catch { /* 저장 안 돼도 동작 */ } };
@@ -144,9 +144,10 @@ const pebbles = Array.from({ length: 26 }, () => ({ x: Math.random(), y: rand(0.
 
 function resize() {
   DPR = Math.min(dprCap, window.devicePixelRatio || 1);
-  W = window.innerWidth; H = window.innerHeight;
+  const box = tank.getBoundingClientRect();
+  W = box.width || window.innerWidth; H = Math.max(box.height, window.innerHeight); botPad = Math.max(0, H - window.innerHeight);
   tank.width = Math.round(W * DPR); tank.height = Math.round(H * DPR); glc.width = hudc.width = tank.width; glc.height = hudc.height = tank.height;
-  sandY = H * 0.88; surfY = Math.max(16, $('count').getBoundingClientRect().top - 7); rescale();
+  sandY = (H - botPad) * 0.88; surfY = Math.max(16, $('count').getBoundingClientRect().top - 7); rescale();
   // 화면 크기가 바뀌면(폰을 돌릴 때 등) 물고기를 새 화면 안으로 불러들인다
   for (const f of shown) { f.x = clamp(f.x, 0, W); f.y = clamp(f.y, 0, sandY); f.rest = 0; retarget(f); }
   groups.clear();
@@ -158,6 +159,7 @@ function rescale() {
   pxPerCm = W / viewCm;
 }
 addEventListener('resize', resize);
+window.visualViewport?.addEventListener('resize', () => { if (Math.abs(Math.max(tank.getBoundingClientRect().height, innerHeight) - H) > 1 || Math.abs(H - innerHeight - botPad) > 1) resize(); });
 
 // 물고기 한 마리 그리기: 세로 조각으로 잘라 꼬리 쪽일수록 크게 물결치게 한다 (그림은 머리가 왼쪽)
 function drawFish(c, img, x, y, L, face, tilt, phase, up = false, amp = 1) {
@@ -300,7 +302,7 @@ function stepFish(f, dt, t) {
 // ───────────────────────── 진짜 같은 물: 그래픽카드(WebGL)로 굴절·빛 그물·빛줄기를 실시간 계산
 // 2D로 그린 장면(물고기·수초·바위·모래)을 통째로 넘겨받아 물속에 넣은 것처럼 합성한다. 안 되는 기기는 기존 그림으로 표시.
 const glc = document.createElement('canvas'), hudc = document.createElement('canvas'), hctx = hudc.getContext('2d');
-for (const c of [glc, hudc]) c.style.cssText = 'position:fixed;inset:0;width:100%;height:100%;display:block;pointer-events:none';
+for (const c of [glc, hudc]) c.style.cssText = 'position:fixed;inset:0;width:100%;height:100%;height:100lvh;display:block;pointer-events:none';
 let G = null, dprCap = 2, slowAcc = 0, slowN = 0;
 const VS = 'attribute vec2 aPos; varying vec2 vUv; void main(){ vUv = vec2(aPos.x * 0.5 + 0.5, 0.5 - aPos.y * 0.5); gl_Position = vec4(aPos, 0.0, 1.0); }';
 const FS = `precision highp float;
@@ -524,7 +526,7 @@ const decos = { sea: [], fresh: [] };
 for (const k of ['sea', 'fresh']) { try { decos[k] = JSON.parse(LS('aq-deco-' + k, '[]')).filter((d) => DECO[d.t]); } catch { decos[k] = []; } }
 const saveDecos = () => setLS('aq-deco-' + water, JSON.stringify(decos[water]));
 const decoU = () => clamp(Math.min(W, H) * 0.15, 50, 96);
-const decoPos = (d) => ({ x: d.x * W, y: sandY + d.y * (H - sandY), u: decoU() * d.s * (0.8 + 0.45 * d.y) });
+const decoPos = (d) => ({ x: d.x * W, y: sandY + d.y * (H - botPad - sandY), u: decoU() * d.s * (0.8 + 0.45 * d.y) });
 // front=false: 물고기 뒤(바닥 안쪽), front=true: 물고기 앞(화면 가까운 쪽)
 function drawDecos(c, t, dt, front) {
   for (const d of decos[water]) {
@@ -564,7 +566,7 @@ tank.addEventListener('pointerdown', (e) => {
 });
 tank.addEventListener('pointermove', (e) => {
   if (!decoDrag || !decoSel) return;
-  decoSel.x = clamp((e.clientX - decoDrag.dx) / W, 0.03, 0.97); decoSel.y = clamp((e.clientY - decoDrag.dy - sandY) / (H - sandY), -0.02, 0.8);
+  decoSel.x = clamp((e.clientX - decoDrag.dx) / W, 0.03, 0.97); decoSel.y = clamp((e.clientY - decoDrag.dy - sandY) / (H - botPad - sandY), -0.02, 0.8);
 });
 const endDecoDrag = () => { if (decoDrag) { decoDrag = null; decos[water].sort((a, b) => a.y - b.y); saveDecos(); } };
 tank.addEventListener('pointerup', endDecoDrag); tank.addEventListener('pointercancel', endDecoDrag);
@@ -705,7 +707,7 @@ function frame(now) {
   // 꾸미기에서 고른 장식 표시
   if (decoMode && decoSel) { const p = decoPos(decoSel); hc.strokeStyle = '#5fe0ff'; hc.lineWidth = 2; hc.setLineDash([6, 5]); hc.beginPath(); hc.ellipse(p.x, p.y - p.u * 0.38, Math.max(30, p.u * 0.7), Math.max(30, p.u * 0.8), 0, 0, 7); hc.stroke(); hc.setLineDash([]); }
   // 눈금자: 실제 크기 가늠용
-  const unit = pxPerCm * 10 < 26 ? 50 : 10, bl = unit * pxPerCm, by = H - 24;
+  const unit = pxPerCm * 10 < 26 ? 50 : 10, bl = unit * pxPerCm, by = H - botPad - 24;
   hc.strokeStyle = hc.fillStyle = 'rgba(255,255,255,.75)'; hc.lineWidth = 1.5;
   hc.beginPath(); hc.moveTo(16, by - 5); hc.lineTo(16, by); hc.lineTo(16 + bl, by); hc.lineTo(16 + bl, by - 5); hc.stroke();
   hc.font = '12px sans-serif'; hc.fillText(`${unit}cm`, 20 + bl, by + 2);
