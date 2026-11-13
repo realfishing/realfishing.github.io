@@ -1217,6 +1217,32 @@ async function fillDayWx(f) {
       for (const r of j.results) { const b = document.createElement('button'); b.textContent = [r.admin1, r.admin2, r.name].filter((v, i, a) => v && a.indexOf(v) === i).join(' '); b.onclick = () => setPlace({ name: b.textContent, lat: r.latitude, lon: r.longitude }); $('tRes').append(b); }
     } catch { $('tRes').textContent = '인터넷 연결을 확인해 주세요.'; }
   };
+  // 지도에서 고르기: 지도를 움직여 가운데 핀에 포인트를 맞춘다 (지도는 처음 열 때 불러온다)
+  let map = null, leafletP = null;
+  const loadLeaflet = () => (leafletP ??= new Promise((res, rej) => {
+    const css = document.createElement('link'); css.rel = 'stylesheet'; css.href = 'vendor/leaflet/leaflet.css'; document.head.append(css);
+    const js = document.createElement('script'); js.src = 'vendor/leaflet/leaflet.js'; js.onload = res; js.onerror = () => { leafletP = null; rej(new Error('leaflet')); }; document.head.append(js);
+  }));
+  $('tMap').onclick = async () => {
+    $('mapPick').hidden = false;
+    try { await loadLeaflet(); } catch { $('mapPick').hidden = true; return toast('지도를 불러오지 못했어요. 인터넷을 확인해 주세요'); }
+    const c = place ? [place.lat, place.lon] : [35.6, 127.6], z = place ? 11 : 7;
+    if (!map) {
+      map = L.map('mpMap', { zoomControl: false, attributionControl: true }).setView(c, z);
+      L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 18, attribution: '© OpenStreetMap' }).addTo(map);
+      L.control.zoom({ position: 'bottomright' }).addTo(map);
+      map.on('move', () => { const p = map.getCenter(); $('mpHint').textContent = `북위 ${p.lat.toFixed(4)}°, 동경 ${p.lng.toFixed(4)}° · 지도를 움직여 핀을 맞춰요`; });
+    } else map.setView(c, z);
+    setTimeout(() => map.invalidateSize(), 60);
+  };
+  $('mpClose').onclick = () => ($('mapPick').hidden = true);
+  $('mpOk').onclick = async () => {
+    const p = map.getCenter(), lat = +p.lat.toFixed(5), lon = +p.lng.toFixed(5);
+    $('mapPick').hidden = true;
+    setPlace({ name: `지도에서 고른 곳 (${lat.toFixed(2)}, ${lon.toFixed(2)})`, lat, lon });
+    const n = await placeName(lat, lon);                    // 지명이 있으면 이름을 바꿔 준다 (바다 한가운데는 좌표로 남는다)
+    if (n && place && place.lat === lat && place.lon === lon) { place.name = n; setLS('aq-tide-place', JSON.stringify(place)); render(); }
+  };
   $('tGo').onclick = search; $('tQ').onkeydown = (e) => { if (e.key === 'Enter') search(); };
   $('tHere').onclick = () => {
     if (!navigator.geolocation) return toast('이 기기에서는 위치를 알 수 없어요');
