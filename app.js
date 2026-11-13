@@ -266,12 +266,14 @@ function stepFish(f, dt, t) {
   let food = null, bd = 1e9;
   for (const p of pellets) { if (st === 'bottom' && p.y < sandY - H * 0.2) continue; const d = Math.hypot(p.x - f.x, p.y - f.y); if (d < bd) { bd = d; food = p; } }
   if (food) {
-    const hx = up ? f.x : f.x + f.face * L * 0.45, hy = up ? f.y - L * 0.45 : f.y;
-    if (Math.hypot(food.x - hx, food.y - hy) < Math.max(12, hh * 0.3)) { pellets.splice(pellets.indexOf(food), 1); bubbles.push({ x: hx, y: hy, r: 2, v: 45, s: rand(0, 6) }); food = null; f.timer = 0.6; }
-    else {
-      f.rest = 0;
-      if (!up && Math.abs(food.x - f.x) > L * 0.2) f.dir = food.x > f.x ? 1 : -1;
-      f.tx = up ? food.x : food.x - f.dir * L * 0.45; f.ty = Math.min(up ? food.y + L * 0.45 : food.y, sandY - ey * 0.5);
+    f.rest = 0;
+    // 먹이 앞에서 좌우로 뒤집히며 떨지 않게: 먹이가 몸 뒤쪽으로 확실히 넘어갔고, 앞선 돌기가 끝났을 때만 돌아선다
+    if (!up && (food.x - f.x) * f.dir < -L * 0.15 && Math.abs(f.face) > 0.9) f.dir = -f.dir;
+    f.tx = up ? food.x : food.x - f.dir * L * 0.45; f.ty = Math.min(up ? food.y + L * 0.45 : food.y, sandY - ey * 0.5);
+    // 입이 먹이에 닿았거나, 갈 수 있는 가장 가까운 자리에 왔으면 먹는다 (바닥에 가라앉은 먹이도 먹을 수 있게)
+    const hx = up ? f.x : f.x + f.face * L * 0.45, hy = up ? f.y - L * 0.45 : f.y, eatR = Math.max(14, hh * 0.35);
+    if (Math.hypot(food.x - hx, food.y - hy) < eatR || Math.hypot(f.tx - f.x, f.ty - f.y) < eatR * 0.7) {
+      pellets.splice(pellets.indexOf(food), 1); bubbles.push({ x: hx, y: hy, r: 2, v: 45, s: rand(0, 6) }); food = null; f.timer = 0.6;
     }
   }
   const chase = !!food;
@@ -288,12 +290,15 @@ function stepFish(f, dt, t) {
   }
   const resting = f.rest > 0 && !chase;
   f.go += ((resting ? 0 : 1) - f.go) * Math.min(1, dt * 2);
-  if (!resting && Math.abs(dx) > (up ? 8 : L * 0.25)) f.dir = dx > 0 ? 1 : -1;
-  f.face += (f.dir - f.face) * Math.min(1, dt * (chase ? 4.5 : 2.6));
+  if (!resting && !chase && Math.abs(dx) > (up ? 8 : L * 0.25)) f.dir = dx > 0 ? 1 : -1;
+  f.face += (f.dir - f.face) * Math.min(1, dt * (chase ? 6 : 2.6));
   const base = Math.max(14, f.cruise * L) * (chase ? 2.4 : 1) * f.go;
   let v = base * (0.35 + 0.65 * Math.abs(f.face));
-  if (chase || up) v *= clamp(Math.abs(dx) / (L * 0.3), 0, 1); else if (st === 'school') v *= clamp(dist / (L * 0.6), 0.15, 1);
-  f.x += f.face * v * dt;
+  if (chase) f.x += clamp(dx * 3.5, -base, base) * dt * (0.3 + 0.7 * Math.abs(f.face));     // 먹이로는 보는 방향과 상관없이 곧장 다가간다 (살짝 뒷걸음도)
+  else {
+    if (up) v *= clamp(Math.abs(dx) / (L * 0.3), 0, 1); else if (st === 'school') v *= clamp(dist / (L * 0.6), 0.15, 1);
+    f.x += f.face * v * dt;
+  }
   const vm = base * (up || chase || st === 'bottom' ? 1 : 0.45), tvy = clamp(dy * (chase ? 2.2 : 0.6), -vm, vm);
   f.vy += (tvy - f.vy) * Math.min(1, dt * (chase ? 4 : 1.6)); f.y += f.vy * dt;
   f.phase += dt * (3.2 + 6 * f.cruise) * (0.3 + 0.7 * f.go) * (chase ? 1.8 : 1);
@@ -660,7 +665,7 @@ function frame(now) {
   for (let i = pellets.length - 1; i >= 0; i--) {
     const p = pellets[i];
     if (p.y < sandY + 2) { p.y += p.vy * dt; p.x += Math.sin(t * 2.2 + p.s) * 8 * dt; } else if ((p.life -= dt) < 0) { pellets.splice(i, 1); continue; }
-    ctx.beginPath(); ctx.arc(p.x, p.y, 2.6, 0, 7); ctx.fill();
+    ctx.beginPath(); ctx.arc(p.x, p.y, 3.4, 0, 7); ctx.fill();
   }
   // 물고기
   for (const f of shown) stepFish(f, dt, t);
@@ -728,7 +733,7 @@ tank.addEventListener('pointerup', (e) => {
     const f = shown[i], b = bounds(f);
     if (Math.abs(e.clientX - f.x) < Math.max(b.ex, 26) && Math.abs(e.clientY - f.y) < Math.max(b.ey, 26)) return openSheet(f);
   }
-  if (e.clientY < sandY - 10 && pellets.length < 60) for (let i = 0; i < 6; i++) pellets.push({ x: e.clientX + rand(-16, 16), y: e.clientY + rand(-8, 8), vy: rand(22, 40), s: rand(0, 6), life: 10 });
+  if (e.clientY < sandY - 10 && pellets.length < 60) pellets.push({ x: e.clientX, y: e.clientY, vy: rand(26, 36), s: rand(0, 6), life: 10 });
 });
 
 // ───────────────────────── 정보 카드
@@ -742,6 +747,12 @@ function showFacts(r) {
   rows.push(...dayFacts(r));
   $('sFacts').innerHTML = rows.join('<br>');
   $('sMemo').textContent = r.memo || '';
+  const box = $('sStyle'); box.innerHTML = '<i>헤엄 방식</i>';
+  for (const [k, n] of [['normal', '보통'], ['bottom', '바닥'], ['school', '무리'], ['rock', '바위 근처'], ['upright', '서서']]) {
+    const b = document.createElement('button'); b.textContent = n; b.className = r.style === k ? 'on' : '';
+    b.onclick = async () => { r.style = k; await store('readwrite', (s) => s.put(r)); if (cur && cur.rec === r) { cur.rest = 0; retarget(cur); } showFacts(r); };
+    box.append(b);
+  }
 }
 const escapeHtml = (s) => s.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 async function openSheet(f) {
@@ -1068,6 +1079,8 @@ const lunarText = (l) => (l.approx ? `음력 ${l.d}일 무렵` : `음력 ${l.lea
 const isSari = (l) => [30, 1, 2, 15, 16, 17].includes(l.d);
 const moonName = (d) => (d <= 1 || d >= 30 ? '그믐·삭' : d <= 6 ? '초승달' : d <= 9 ? '상현달' : d <= 13 ? '차오르는 달' : d <= 17 ? '보름달' : d <= 21 ? '기우는 달' : d <= 24 ? '하현달' : '그믐달');
 const WX = { 0: '맑음', 1: '대체로 맑음', 2: '구름 조금', 3: '흐림', 45: '안개', 48: '안개', 51: '이슬비', 53: '이슬비', 55: '이슬비', 56: '이슬비', 57: '이슬비', 61: '약한 비', 63: '비', 65: '강한 비', 66: '어는 비', 67: '어는 비', 71: '약한 눈', 73: '눈', 75: '강한 눈', 77: '싸락눈', 80: '소나기', 81: '소나기', 82: '강한 소나기', 85: '눈 소나기', 86: '눈 소나기', 95: '뇌우', 96: '뇌우·우박', 99: '뇌우·우박' };
+const windTo = (deg) => ['남', '남서', '서', '북서', '북', '북동', '동', '남동'][Math.round(deg / 45) % 8];   // 불어 가는 쪽
+const windArrow = (deg) => `<svg class="warrow" viewBox="0 0 24 24" style="transform:rotate(${Math.round(deg + 180)}deg)"><path d="M12 20V5M6 11l6-6 6 6"/></svg>`;
 const windName = (deg) => ['북', '북동', '동', '남동', '남', '남서', '서', '북서'][Math.round(deg / 45) % 8] + '풍';
 const isoOf = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 const addDays = (ds, n) => { const d = new Date(ds + 'T12:00:00'); d.setDate(d.getDate() + n); return isoOf(d); };
@@ -1165,7 +1178,7 @@ async function fillDayWx(f) {
     let html = card('mul', '물때', mulName(l.d), `${lunarText(l)}${isSari(l) ? ' · 사리 무렵' : ''}`);
     html += card('tide', '만조 · 간조', w.tides && w.tides.length ? w.tides.map((x) => `<span class="${x.hi ? 'hi' : 'lo'}">${x.hi ? '만조' : '간조'} ${x.t}</span>`).join('') : none, w.tides && w.tides.length ? '예측 모델로 어림한 값이라 실제와 20~30분쯤 다를 수 있어요' : '');
     html += card('wx', '날씨', w.code != null ? WX[w.code] || '-' : none, w.code != null ? `최저 ${Math.round(w.tmin)}℃ · 최고 ${Math.round(w.tmax)}℃${w.rain ? ` · 비 ${w.rain.toFixed(1)}mm` : ''}` : '');
-    html += card('wind', '바람', w.wind != null ? `${w.wind.toFixed(1)} m/s` : none, w.wind != null ? `${windName(w.wdir)} · 하루 중 가장 셀 때` : '');
+    html += card('wind', '바람', w.wind != null ? `${windArrow(w.wdir)}${w.wind.toFixed(1)} m/s` : none, w.wind != null ? `${windName(w.wdir)} · ${windName(w.wdir).replace('풍', '')}쪽에서 ${windTo(w.wdir)}쪽으로 · 화살표 위가 북쪽` : '');
     html += card('wave', '파고', w.wave != null ? `${w.wave.toFixed(1)} m` : none, w.wave != null ? '하루 중 가장 높을 때' : '');
     html += card('sst', '수온', w.sst != null ? `${w.sst.toFixed(1)} ℃` : none, w.sst != null ? '바다 표면, 하루 평균' : '');
     html += card('sun', '일출 · 일몰', w.rise ? `${w.rise} · ${w.set}` : none);
